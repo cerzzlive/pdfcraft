@@ -298,7 +298,9 @@ pub(super) fn shaped_layout(t: &AddedText, line: &str, rtl: bool) -> Result<(Vec
                 let shaped = match script {
                     ShapedScript::Arabic => shape_arabic(&s, run_rtl).map_err(|e| arabic_error(e, &s))?,
                     ShapedScript::Hebrew => shape_hebrew(&s, run_rtl).map_err(|e| hebrew_error(e, &s))?,
-                    ShapedScript::Thai | ShapedScript::ThaiBold => shape_thai_styled(&s, script == ShapedScript::ThaiBold).map_err(|e| thai_error(e, &s))?,
+                    ShapedScript::Thai | ShapedScript::ThaiBold => {
+                        shape_thai_styled(&s, script == ShapedScript::ThaiBold).map_err(|e| thai_error(e, &s))?
+                    }
                 };
                 Piece::Shaped(shaped)
             } else if run_rtl {
