@@ -272,11 +272,15 @@ pub(super) fn shaped_layout(t: &AddedText, line: &str, rtl: bool) -> Result<(Vec
         // Arabic and Hebrew letters take their face; so do spaces and punctuation between them
         // (Hebrew's when they follow Hebrew), which the shaper then mirrors. Latin text (and what
         // the faces lack) keeps the item's font.
+        //
+        // An item with Thai in it draws everything its Thai face has in that face, Latin letters,
+        // digits, spaces and punctuation included, so a Thai document's English reads in the same
+        // type as its Thai (as Word draws it with one Thai font) instead of Helvetica.
+        let thai_item = t.text.chars().any(is_thai);
         let mut segments: Vec<(Option<ShapedScript>, String)> = Vec::new();
         for c in text.chars().filter(|c| !is_bidi_control(*c)) {
             let after_hebrew = segments.last().is_some_and(|(kind, _)| *kind == Some(ShapedScript::Hebrew));
-            let in_thai = segments.last().is_some_and(|(kind, _)| matches!(kind, Some(ShapedScript::Thai | ShapedScript::ThaiBold)));
-            let script = if is_thai(c) || (in_thai && !c.is_alphabetic() && pdfcraft_fonts::thai_has(c)) {
+            let script = if is_thai(c) || (thai_item && pdfcraft_fonts::thai_has(c)) {
                 Some(if t.bold { ShapedScript::ThaiBold } else { ShapedScript::Thai })
             } else if is_hebrew(c) || (run_rtl && after_hebrew && !c.is_alphanumeric() && pdfcraft_fonts::hebrew_has(c)) {
                 Some(ShapedScript::Hebrew)

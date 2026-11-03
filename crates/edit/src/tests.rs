@@ -1278,6 +1278,34 @@ fn added_thai_text_is_drawn_from_the_document_thai_face() {
     assert!(families.iter().all(|f| f == face.family), "{families:?}, expected {}", face.family);
 }
 
+/// The fonts the stream of added item `index` on page 0 sets with `Tf`.
+fn item_fonts(doc: &Document, index: usize) -> Vec<String> {
+    let s = String::from_utf8_lossy(&stream_bytes(doc, &Object::Ref(list_added(doc)[index].obj)).unwrap()).into_owned();
+    let words: Vec<&str> = s.split_whitespace().collect();
+    words.windows(3).filter(|w| w[2] == "Tf").filter_map(|w| w[0].strip_prefix('/')).map(String::from).collect()
+}
+
+/// In an item with Thai, Latin letters, digits, spaces and punctuation are drawn from the Thai
+/// face too, so the line is one type; an item without Thai keeps its own font.
+#[test]
+fn latin_in_a_thai_item_is_drawn_with_the_thai_face() {
+    if pdfcraft_fonts::document_thai_font().is_none() || !pdfcraft_fonts::thai_has('H') {
+        return;
+    }
+    let mut doc = fixture();
+    let t = AddedText {
+        rect: [72.0, 600.0, 500.0, 700.0],
+        text: "บริการสุขภาพ HA (Hospital Accreditation) ปี 2569.".into(),
+        size: 14.0,
+        ..AddedText::default()
+    };
+    add_content(&mut doc, 0, &Content::Text(t.clone())).unwrap();
+    let fonts = item_fonts(&doc, 0);
+    assert!(!fonts.is_empty() && fonts.iter().all(|f| f.starts_with("PCAr")), "one Thai face for the whole line: {fonts:?}");
+    add_content(&mut doc, 0, &Content::Text(AddedText { text: "Hospital Accreditation".into(), rect: [72.0, 500.0, 500.0, 520.0], ..t })).unwrap();
+    assert!(item_fonts(&doc, 1).iter().all(|f| !f.starts_with("PCAr")), "Latin-only text keeps its own font");
+}
+
 #[test]
 fn arabic_items_keep_their_own_fonts_through_saves_updates_and_deletes() {
     let mut doc = fixture();
