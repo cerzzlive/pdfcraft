@@ -81,6 +81,17 @@ pub fn document_thai_font() -> Option<&'static CraftFont> {
     thai_document_face(CRAFT_DOCUMENT_FONTS, CRAFT_FONTS)
 }
 
+/// Whether the Thai document manifest's face also covers Latin (`Thai,Latn`): a build that opts
+/// into it then draws Latin text in that face everywhere, not only inside Thai, so an English
+/// letter reads in the same type as the Thai ones beside it.
+pub fn document_thai_face_has_latin() -> bool {
+    thai_face_has_latin(CRAFT_DOCUMENT_FONTS)
+}
+
+fn thai_face_has_latin(document: &[CraftFont]) -> bool {
+    document.iter().any(|f| f.covers("Thai") && f.covers("Latn"))
+}
+
 /// [`document_thai_font`] over the given document-manifest and main-manifest faces. Plain text
 /// prefers the interface face to a document face of another style (no bold for regular text).
 fn thai_document_face<'a>(document: &'a [CraftFont], ui: &'a [CraftFont]) -> Option<&'a CraftFont> {

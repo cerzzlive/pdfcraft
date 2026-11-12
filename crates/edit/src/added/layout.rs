@@ -1,4 +1,4 @@
-use super::types::{AddedImage, AddedText};
+use super::types::{AddedImage, AddedText, Family};
 use super::{
     Content, Document, EditError, GlyphError, Level, ObjRef, Object, ParagraphBidiInfo, ShapedScript, shape_arabic, shape_hebrew, shape_thai_styled,
 };
@@ -38,7 +38,7 @@ pub(super) fn wrapped(t: &AddedText) -> Vec<(String, bool, usize)> {
     for (index, para) in t.text.split('\n').enumerate() {
         // Arabic or Hebrew: laid out with the bidirectional algorithm and shaped.
         let rtl_script = para.chars().any(|c| is_arabic(c) || is_hebrew(c));
-        let thai = para.chars().any(is_thai);
+        let thai = para.chars().any(is_thai) || latin_in_thai_face(t);
         if thai
             && !rtl_script
             && let Ok(lines) = thai_lines(t, para, width)
@@ -177,6 +177,17 @@ fn thai_words(atoms: Vec<(String, f64)>) -> Vec<Vec<(String, f64)>> {
 
 pub(super) use pdfcraft_fonts::shaped_text::{Piece, is_thai};
 
+/// Whether a Latin-only item is drawn with the Thai document face: the build's Thai document
+/// manifest covers Latin (`Thai,Latn`) and the item is upright Helvetica with no Arabic or Hebrew.
+/// An item with Thai in it is drawn with that face anyway; an explicit Times or Courier item, an
+/// italic one (the face has no italic) and right-to-left text keep their own fonts.
+pub(super) fn latin_in_thai_face(t: &AddedText) -> bool {
+    t.family == Family::Helvetica
+        && !t.italic
+        && pdfcraft_fonts::document_thai_face_has_latin()
+        && !t.text.chars().any(|c| is_arabic(c) || is_hebrew(c))
+}
+
 /// Arabic letters, marks, digits and punctuation: an item with any of them is shaped with the
 /// craft-fonts Arabic face.
 pub(super) fn is_arabic(c: char) -> bool {
@@ -272,12 +283,17 @@ pub(super) fn shaped_layout(t: &AddedText, line: &str, rtl: bool) -> Result<(Vec
         // Arabic and Hebrew letters take their face; so do spaces and punctuation between them
         // (Hebrew's when they follow Hebrew), which the shaper then mirrors. Latin text (and what
         // the faces lack) keeps the item's font.
+        //
+        // An item with Thai in it draws everything its Thai face has in that face, Latin letters,
+        // digits, spaces and punctuation included, so a Thai document's English reads in the same
+        // type as its Thai (as Word draws it with one Thai font) instead of Helvetica. So does a
+        // Latin-only item when the build's Thai document face covers Latin (an English letter).
+        let thai_item = t.text.chars().any(is_thai) || latin_in_thai_face(t);
         let mut segments: Vec<(Option<ShapedScript>, String)> = Vec::new();
         for c in text.chars().filter(|c| !is_bidi_control(*c)) {
             let after_hebrew = segments.last().is_some_and(|(kind, _)| *kind == Some(ShapedScript::Hebrew));
-            let in_thai = segments.last().is_some_and(|(kind, _)| matches!(kind, Some(ShapedScript::Thai | ShapedScript::ThaiBold)));
             // Joined only when the face that shapes the run (bold or regular) has the glyph.
-            let script = if is_thai(c) || (in_thai && !c.is_alphabetic() && pdfcraft_fonts::thai_has_styled(c, t.bold)) {
+            let script = if is_thai(c) || (thai_item && pdfcraft_fonts::thai_has_styled(c, t.bold)) {
                 Some(if t.bold { ShapedScript::ThaiBold } else { ShapedScript::Thai })
             } else if is_hebrew(c) || (run_rtl && after_hebrew && !c.is_alphanumeric() && pdfcraft_fonts::hebrew_has(c)) {
                 Some(ShapedScript::Hebrew)

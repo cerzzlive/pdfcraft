@@ -1277,6 +1277,9 @@ fn combined_marker_scan_matches_the_independent_scans() {
 
 #[test]
 fn added_text_and_images_are_page_content_that_stays_editable() {
+    if latin_in_thai_face() {
+        return;
+    }
     let mut doc = fixture();
     let text = AddedText { rect: [72.0, 600.0, 300.0, 700.0], text: "Approved by Ada\nSecond line".into(), size: 14.0, ..AddedText::default() };
     assert_eq!(add_content(&mut doc, 0, &Content::Text(text.clone())).unwrap(), 0);
@@ -1488,6 +1491,9 @@ fn an_ink_is_kept_as_it_is_painted() {
 /// #4464: a page left with one added item draws that item and nothing else.
 #[test]
 fn an_isolated_item_is_all_that_is_left_on_its_page() {
+    if latin_in_thai_face() {
+        return;
+    }
     let mut doc = fixture();
     let first = AddedText { rect: [72.0, 600.0, 300.0, 700.0], text: "First".into(), size: 14.0, ..AddedText::default() };
     let second = AddedText { rect: [72.0, 400.0, 300.0, 500.0], text: "Second".into(), ..first.clone() };
@@ -1787,6 +1793,77 @@ fn bold_added_thai_text_draws_the_bold_faces_outlines() {
     let (thin, heavy) = (outlines(false), outlines(true));
     assert!(!thin.is_empty() && !heavy.is_empty());
     assert_ne!(thin, heavy, "bold must change the outlines, not only the descriptor");
+}
+
+/// Whether Latin-only items are drawn with the Thai document face (a build whose Thai document
+/// manifest covers Latin), so a test reading Helvetica's `(text) Tj` operators doesn't apply.
+fn latin_in_thai_face() -> bool {
+    pdfcraft_fonts::document_thai_face_has_latin()
+}
+
+/// The fonts the stream of added item `index` on page 0 sets with `Tf`.
+fn item_fonts(doc: &Document, index: usize) -> Vec<String> {
+    let s = String::from_utf8_lossy(&stream_bytes(doc, &Object::Ref(list_added(doc)[index].obj)).unwrap()).into_owned();
+    let words: Vec<&str> = s.split_whitespace().collect();
+    words.windows(3).filter(|w| w[2] == "Tf").filter_map(|w| w[0].strip_prefix('/')).map(String::from).collect()
+}
+
+/// In an item with Thai, Latin letters, digits, spaces and punctuation are drawn from the Thai
+/// face too, so the line is one type; an item without Thai keeps its own font.
+#[test]
+fn latin_in_a_thai_item_is_drawn_with_the_thai_face() {
+    if pdfcraft_fonts::document_thai_font().is_none() || !pdfcraft_fonts::thai_has('H') {
+        return;
+    }
+    let mut doc = fixture();
+    let t = AddedText {
+        rect: [72.0, 600.0, 500.0, 700.0],
+        text: "บริการสุขภาพ HA (Hospital Accreditation) ปี 2569.".into(),
+        size: 14.0,
+        ..AddedText::default()
+    };
+    add_content(&mut doc, 0, &Content::Text(t.clone())).unwrap();
+    let fonts = item_fonts(&doc, 0);
+    assert!(!fonts.is_empty() && fonts.iter().all(|f| f.starts_with("PCAr")), "one Thai face for the whole line: {fonts:?}");
+    add_content(&mut doc, 0, &Content::Text(AddedText { text: "Hospital Accreditation".into(), rect: [72.0, 500.0, 500.0, 520.0], ..t })).unwrap();
+    let latin = item_fonts(&doc, 1);
+    if pdfcraft_fonts::document_thai_face_has_latin() {
+        assert!(!latin.is_empty() && latin.iter().all(|f| f.starts_with("PCAr")), "the Thai face covers Latin: {latin:?}");
+    } else {
+        assert!(latin.iter().all(|f| !f.starts_with("PCAr")), "Latin-only text keeps its own font: {latin:?}");
+    }
+}
+
+/// A build whose Thai document face covers Latin (`Thai,Latn`) draws Latin-only items in it, bold
+/// ones too, and measures them with it, so a line ends where it is drawn. Times,
+/// Courier and italic items keep their own fonts.
+#[test]
+fn latin_only_items_take_a_thai_document_face_that_covers_latin() {
+    if !pdfcraft_fonts::document_thai_face_has_latin() {
+        return;
+    }
+    let mut doc = fixture();
+    let t = AddedText {
+        rect: [72.0, 600.0, 500.0, 620.0],
+        text: "Khon Kaen University, 123 Mittraphap Road, 40002".into(),
+        size: 14.0,
+        ..AddedText::default()
+    };
+    let at = |y: f64, t: &AddedText| AddedText { rect: [72.0, y, 500.0, y + 20.0], ..t.clone() };
+    add_content(&mut doc, 0, &Content::Text(t.clone())).unwrap();
+    add_content(&mut doc, 0, &Content::Text(AddedText { bold: true, ..at(560.0, &t) })).unwrap();
+    add_content(&mut doc, 0, &Content::Text(AddedText { family: Family::Times, ..at(520.0, &t) })).unwrap();
+    add_content(&mut doc, 0, &Content::Text(AddedText { family: Family::Courier, ..at(480.0, &t) })).unwrap();
+    add_content(&mut doc, 0, &Content::Text(AddedText { italic: true, ..at(440.0, &t) })).unwrap();
+    let (regular, bold) = (item_fonts(&doc, 0), item_fonts(&doc, 1));
+    assert!(!regular.is_empty() && regular.iter().all(|f| f.starts_with("PCAr")), "{regular:?}");
+    assert!(!bold.is_empty() && bold.iter().all(|f| f.starts_with("PCAr")), "{bold:?}");
+    for i in 2..5 {
+        let own = item_fonts(&doc, i);
+        assert!(!own.is_empty() && own.iter().all(|f| !f.starts_with("PCAr")), "item {i}: {own:?}");
+    }
+    // Measured with the face it is drawn in, not Helvetica's metrics.
+    assert!((crate::added::text_width(&t) - t.family.width(&t.text, t.size, false, false)).abs() > 1.0);
 }
 
 #[test]
@@ -9188,6 +9265,9 @@ fn an_items_measured_face_is_the_face_it_is_written_as() {
 
 #[test]
 fn page_marks_and_added_content_preserve_fractional_user_unit_matrices() {
+    if latin_in_thai_face() {
+        return;
+    }
     for rotation in [0, 90] {
         let mut doc = fixture();
         let page = pdfcraft_model::pages(&doc)[2].obj;
@@ -10950,6 +11030,9 @@ fn added_text_that_never_fills_its_line_wraps_in_linear_time() {
 /// reopens with it; an item written without it reads 0.
 #[test]
 fn added_text_character_spacing_is_drawn_and_reopens() {
+    if latin_in_thai_face() {
+        return;
+    }
     let mut doc = fixture();
     let plain = AddedText { rect: [72.0, 600.0, 400.0, 700.0], text: "Approved".into(), size: 10.0, ..AddedText::default() };
     add_content(&mut doc, 0, &Content::Text(plain.clone())).unwrap();
@@ -11359,6 +11442,9 @@ fn one_row_of_a_styled_region_takes_its_own_alignment_is_refused_without_changin
 /// line isn't stretched, and the alignments survive saving and reopening.
 #[test]
 fn added_text_paragraphs_keep_their_own_alignments() {
+    if latin_in_thai_face() {
+        return;
+    }
     let mut doc = fixture();
     let text = AddedText {
         rect: [72.0, 600.0, 372.0, 700.0],
@@ -11392,6 +11478,9 @@ fn added_text_paragraphs_keep_their_own_alignments() {
 /// right-aligned line still ends at the box's right edge, and a centred one sits in the middle.
 #[test]
 fn added_text_paragraphs_align_by_their_spaced_width() {
+    if latin_in_thai_face() {
+        return;
+    }
     let mut doc = fixture();
     let text = AddedText {
         rect: [72.0, 600.0, 372.0, 700.0],
